@@ -11,7 +11,8 @@
  
  */ 
 
-#include <asf.h>
+
+#include "asf.h"
 #include "tfont.h"
 #include "sourcecodepro_28.h"
 #include "calibri_36.h"
@@ -38,6 +39,13 @@
 
 
 volatile int x = -1;
+volatile int x1 = -1;
+
+volatile int segundos = 0;
+volatile int minutos = 0;
+volatile int horas = 0;
+
+volatile Bool flag = false;
 
 volatile Bool f_rtt_alarme = false;
 
@@ -45,7 +53,6 @@ volatile Bool f_rtt_alarme = false;
 /* prototypes                                                           */
 /************************************************************************/
 void pin_toggle(Pio *pio, uint32_t mask);
-void io_init(void);
 static void RTT_init(uint16_t pllPreScale, uint32_t IrqNPulses);
 
 
@@ -60,9 +67,26 @@ struct ili9488_opt_t g_ili9488_display_opt;
 
 void but_callback(void){
 	 x += 1;
+	 x1 += 1;
 	 delay_ms(30);
 }
 
+
+void RTT_Handler(void)
+{
+	uint32_t ul_status;
+
+	/* Get RTT status */
+	ul_status = rtt_get_status(RTT);
+
+	/* IRQ due to Time has changed */
+	if ((ul_status & RTT_SR_RTTINC) == RTT_SR_RTTINC) {  }
+
+	/* IRQ due to Alarm */
+	if ((ul_status & RTT_SR_ALMS) == RTT_SR_ALMS) {
+		f_rtt_alarme = true;                  // flag RTT alarme
+	}
+}
 
 
 /************************************************************************/
@@ -125,22 +149,68 @@ void font_draw_text(tFont *font, const char *text, int x, int y, int spacing) {
 	}	
 }
 
-float velocidade(int pulsos){
+float velocidade(int pulsos1){
 	int tempo = 4;
-	return pulsos*0.65*PI/tempo;
+	return pulsos1*0.65*PI/tempo;
 }
 
 float distancia(int pulsos){
 	return 2*PI*0.325*pulsos;
 }
 
+void tempo(int t){
+	if ((segundos % 60 == 0)&& (segundos > 0)){
+		minutos += 1;
+		if (minutos % 60 == 0){
+			minutos = 0; 
+			horas += 1;
+		}
+	}
+	segundos = t - 60*minutos - 360*horas;
+}
+
+
+
+void pin_toggle(Pio *pio, uint32_t mask){
+	if(pio_get_output_data_status(pio, mask))
+	pio_clear(pio, mask);
+	else
+	pio_set(pio,mask);
+}
+
+static float get_time_rtt(){
+	uint ul_previous_time = rtt_read_timer_value(RTT);
+}
+
+static void RTT_init(uint16_t pllPreScale, uint32_t IrqNPulses)
+{
+	uint32_t ul_previous_time;
+
+	/* Configure RTT for a 1 second tick interrupt */
+	rtt_sel_source(RTT, false);
+	rtt_init(RTT, pllPreScale);
+	
+	ul_previous_time = rtt_read_timer_value(RTT);
+	while (ul_previous_time == rtt_read_timer_value(RTT));
+	
+	rtt_write_alarm_time(RTT, IrqNPulses+ul_previous_time);
+
+	/* Enable RTT interrupt */
+	NVIC_DisableIRQ(RTT_IRQn);
+	NVIC_ClearPendingIRQ(RTT_IRQn);
+	NVIC_SetPriority(RTT_IRQn, 0);
+	NVIC_EnableIRQ(RTT_IRQn);
+	rtt_enable_interrupt(RTT, RTT_MR_ALMIEN);
+}
+
 
 int main(void) {
 	board_init();
-	sysclk_init();	
+	
 	configure_lcd();
 	WDT->WDT_MR = WDT_MR_WDDIS;
 	init_but();
+	sysclk_init();	
 	
 	
 	char buffer1[32];
@@ -151,14 +221,34 @@ int main(void) {
 	
 	//font_draw_text(&arial_72, sprintf(buffer, "%d", x), 50, 200, 2);
 	
+	  uint16_t pllPreScale = (int) (((float) 32768));
+      uint32_t irqRTTvalue = 8;
+      
+      // reinicia RTT para gerar um novo IRQ
+      RTT_init(pllPreScale, irqRTTvalue);         
+      
+     /*
+      * caso queira ler o valor atual do RTT, basta usar a funcao
+      *   rtt_read_timer_value()
+      */
+
 	while(1) {
-		sprintf(buffer1, "x: %d", x);
+		
+		if ((segundos%4 == 0)&&flag){
+			sprintf(buffer2, "%fkm/h", velocidade(x1));
+			sprintf(buffer3, "%fm", distancia(x));
+			x1 = 0;
+			flag = false;
+		}
+		if (segundos%4 != 0){
+			flag = true;
+		}
+		tempo(rtt_read_timer_value(RTT));
+		
+		sprintf(buffer1, "tempo: %02d:%02d:%02d", horas, minutos, segundos);
 		font_draw_text(&calibri_36, buffer1, 50, 100, 1);
-		
-		sprintf(buffer2, "vel: %f", velocidade(x));
 		font_draw_text(&calibri_36, buffer2, 50, 200, 1);
-		
-		sprintf(buffer3, "dist: %f", distancia(x));
 		font_draw_text(&calibri_36, buffer3, 50, 300, 1);
+		
 	}
 }
