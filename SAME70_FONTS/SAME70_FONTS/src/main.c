@@ -5,21 +5,69 @@
  *  Author: eduardo
  */ 
 
+/*
+ 
+	Includes
+ 
+ */ 
+
 #include <asf.h>
 #include "tfont.h"
 #include "sourcecodepro_28.h"
 #include "calibri_36.h"
 #include "arial_72.h"
 
+/*
+ 
+	Defines
+ 
+ */ 
 
-
+#define PI 3.14
 
 #define BUT_PIO_VR			PIOA
-#define BUT_PIO_ID_VR		19
-#define BUT_PIO_IDX_VR		2u
+#define BUT_PIO_ID_VR		10
+#define BUT_PIO_IDX_VR		19u
 #define BUT_PIO_IDX_MASK_VR (1u << BUT_PIO_IDX_VR)
 
+/*
+ 
+	variaveis globais
+ 
+ */ 
+
+
+volatile int x = -1;
+
+volatile Bool f_rtt_alarme = false;
+
+/************************************************************************/
+/* prototypes                                                           */
+/************************************************************************/
+void pin_toggle(Pio *pio, uint32_t mask);
+void io_init(void);
+static void RTT_init(uint16_t pllPreScale, uint32_t IrqNPulses);
+
+
 struct ili9488_opt_t g_ili9488_display_opt;
+
+/*
+ 
+	handlers
+ 
+ */ 
+
+
+void but_callback(void){
+	 x += 1;
+	 delay_ms(30);
+}
+
+
+
+/************************************************************************/
+/* inits                                                                */
+/************************************************************************/
 
 void configure_lcd(void){
 	/* Initialize display parameter */
@@ -34,7 +82,8 @@ void configure_lcd(void){
 	
 }
 
-void init(void){
+
+void init_but(void){
 	
 	pmc_enable_periph_clk(BUT_PIO_ID_VR);
 
@@ -49,14 +98,18 @@ void init(void){
 	// Ativa interrupção
 	pio_enable_interrupt(BUT_PIO_VR, BUT_PIO_IDX_MASK_VR);
 
-	// Configura NVIC para receber interrupcoes do PIO do botao
-	// com prioridade 4 (quanto mais próximo de 0 maior)
 	NVIC_EnableIRQ(BUT_PIO_ID_VR);
 	NVIC_SetPriority(BUT_PIO_ID_VR, 0); // Prioridade 4
 
 	
 }
 
+
+/*
+ 
+	funcoes
+ 
+ */ 
 
 void font_draw_text(tFont *font, const char *text, int x, int y, int spacing) {
 	char *p = text;
@@ -72,28 +125,40 @@ void font_draw_text(tFont *font, const char *text, int x, int y, int spacing) {
 	}	
 }
 
-//float velocidade(int pulsos, float tempo){
-//	return angular*0,65;
-//}
+float velocidade(int pulsos){
+	int tempo = 4;
+	return pulsos*0.65*PI/tempo;
+}
 
-//float distancia(int pulsos){
-//	return 2*PI*angular*tempo;
-//}
+float distancia(int pulsos){
+	return 2*PI*0.325*pulsos;
+}
 
 
 int main(void) {
 	board_init();
 	sysclk_init();	
 	configure_lcd();
+	WDT->WDT_MR = WDT_MR_WDDIS;
+	init_but();
 	
-	char buffer[32];
-	int x = 12;
-	sprintf(buffer, "pessoal!! %d", x);
 	
-	font_draw_text(&sourcecodepro_28, "oimundo", 50, 50, 1);
-	font_draw_text(&calibri_36, buffer, 50, 100, 1);
+	char buffer1[32];
+	char buffer2[32];
+	char buffer3[32];
+	
+	//font_draw_text(&sourcecodepro_28, "oimundo", 50, 50, 1);
+	
 	//font_draw_text(&arial_72, sprintf(buffer, "%d", x), 50, 200, 2);
+	
 	while(1) {
+		sprintf(buffer1, "x: %d", x);
+		font_draw_text(&calibri_36, buffer1, 50, 100, 1);
 		
+		sprintf(buffer2, "vel: %f", velocidade(x));
+		font_draw_text(&calibri_36, buffer2, 50, 200, 1);
+		
+		sprintf(buffer3, "dist: %f", distancia(x));
+		font_draw_text(&calibri_36, buffer3, 50, 300, 1);
 	}
 }
